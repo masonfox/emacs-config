@@ -434,22 +434,23 @@ place point after the link, and re-enter insert mode."
  ;; set org-roam journal global entries
   (map! :leader
       (:prefix ("j" . "journal")
-       :desc "Open journal note by date"       "d" #'org-roam-dailies-goto-date
-       :desc "Open yesterday's journal note"   "y" #'org-roam-dailies-goto-yesterday
-       :desc "Open today's journal note"       "t" #'org-roam-dailies-goto-today
-       :desc "Find previous journal note"      "p" #'org-roam-dailies-find-previous-note
-       :desc "Find next journal note"          "n" #'org-roam-dailies-find-next-note
-       :desc "Open random journal note"        "r" #'mason/open-random-journal-note))
+       :desc "Open journal note by date"      "d" #'org-roam-dailies-goto-date
+       :desc "Open yesterday's journal note"  "y" #'org-roam-dailies-goto-yesterday
+       :desc "Open today's journal note"      "t" #'org-roam-dailies-goto-today
+       :desc "Find previous journal note"     "p" #'org-roam-dailies-find-previous-note
+       :desc "Find next journal note"         "n" #'org-roam-dailies-find-next-note
+       :desc "Open random journal note"       "r" #'mason/open-random-journal-note))
 
   ;; Override 'SPC-/' to search all org-roam-directory notes
   (map! :leader
         :desc "Search all org-roam notes"
         "/" #'mason/search-org-roam)
 
-  ;; Quick access to magit push origin
+  ;; Quick access to magit/git operations
   (map! :leader
-      :desc "Git push"
-      "g p" #'magit-push-current-to-upstream)
+      (:prefix ("g" . "git")
+       :desc "Git push"      "P" #'magit-push-current-to-upstream ;; uppercase
+       :desc "Git pull"      "p" #'magit-pull-from-upstream))     ;; lowercase
 
   ;; Completion key inside org-mode
   (map! :map org-mode-map
