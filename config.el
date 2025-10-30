@@ -429,6 +429,7 @@ place point after the link, and re-enter insert mode."
          :desc "See backlinks"                "b" #'org-roam-buffer-toggle
          :desc "Move file"                    "m" #'mason/org-roam-move-file
          :desc "Goto or insert parent node"   "p" #'mason/org-roam-goto-or-insert-parent
+         :desc "Go to home/root.org"          "h" #'(lambda () (interactive) (find-file "~/notes/root.org"))
          :desc "Extract subtree to node"      "x" #'org-roam-extract-subtree))
 
  ;; set org-roam journal global entries
