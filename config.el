@@ -323,7 +323,7 @@ place point after the link, and re-enter insert mode."
                     ;; Commit with a descriptive message
                     (shell-command (format "git commit -m %s"
                                          (shell-quote-argument
-                                          (format "#desktop: auto-move - %s → %s"
+                                          (format "#desktop: MOVE %s → %s"
                                                  relative-old-path
                                                  relative-new-path)))))
                   ;; Sync org-roam
@@ -333,6 +333,38 @@ place point after the link, and re-enter insert mode."
 
 ;; Hook it up to run after saving
 (add-hook 'after-save-hook #'mason/org-roam-auto-organize-by-tag)
+
+
+;; Auto-commit when files are deleted
+(defun mason/org-roam-auto-commit-deletion-advice (orig-fun file &optional trash)
+  "Advice to automatically commit when an org-roam file is deleted."
+  ;; First, actually delete the file
+  (funcall orig-fun file trash)
+  ;; Then commit the deletion
+  (when (and (boundp 'org-roam-directory)
+             org-roam-directory
+             (stringp org-roam-directory)
+             (file-exists-p org-roam-directory)
+             (string-suffix-p ".org" file))
+    (condition-case err
+        (let ((relative-path (file-relative-name file org-roam-directory)))
+          ;; Only proceed if we're in org-roam-directory
+          (when (string-prefix-p (expand-file-name org-roam-directory)
+                                (expand-file-name file))
+            (let ((default-directory org-roam-directory))
+              ;; Stage the deletion
+              (shell-command (format "git add %s" (shell-quote-argument relative-path)))
+              ;; Commit with a descriptive message
+              (shell-command (format "git commit -m %s"
+                                   (shell-quote-argument
+                                    (format "#desktop: DELETE %s" relative-path)))))
+            ;; Sync org-roam database
+            (org-roam-db-sync)
+            (message "File deletion committed: %s" relative-path)))
+      (error nil))))  ; Silently ignore any errors
+
+;; Advise delete-file to auto-commit after deletion
+(advice-add 'delete-file :around #'mason/org-roam-auto-commit-deletion-advice)
 
 
 ;; Opens a random journal note
@@ -356,7 +388,7 @@ place point after the link, and re-enter insert mode."
   (when (and buffer-file-name
              (string-match-p (expand-file-name org-roam-directory)
                            buffer-file-name))
-    (let ((commit-msg (format "#desktop: update %s - %s"
+    (let ((commit-msg (format "#desktop: UPDATE %s - %s"
                               (file-name-nondirectory buffer-file-name)
                               (format-time-string "%Y-%m-%d %I:%M %p"))))
       (shell-command
