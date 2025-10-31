@@ -306,15 +306,29 @@ place point after the link, and re-enter insert mode."
                 (unless (file-exists-p target-dir)
                   (make-directory target-dir t))
 
-                (let ((new-path (expand-file-name filename target-dir)))
+                (let ((new-path (expand-file-name filename target-dir))
+                      (relative-old-path (file-relative-name current-file org-roam-directory))
+                      (relative-new-path nil))
                   ;; Move the file
                   (rename-file current-file new-path 1)
                   ;; Update buffer
                   (set-visited-file-name new-path t t)
                   (set-buffer-modified-p nil)
+                  ;; Git commit the move
+                  (setq relative-new-path (file-relative-name new-path org-roam-directory))
+                  (let ((default-directory org-roam-directory))
+                    ;; Stage the deletion of old path and addition of new path
+                    (shell-command (format "git add %s" (shell-quote-argument relative-new-path)))
+                    (shell-command (format "git add %s" (shell-quote-argument relative-old-path)))
+                    ;; Commit with a descriptive message
+                    (shell-command (format "git commit -m %s"
+                                         (shell-quote-argument
+                                          (format "#desktop: auto-move - %s → %s"
+                                                 relative-old-path
+                                                 relative-new-path)))))
                   ;; Sync org-roam
                   (org-roam-db-sync)
-                  (message "File - %s - moved to %s - based on tags" filename target-dir))))))
+                  (message "File - %s - moved to %s - based on tags (committed)" filename target-dir))))))
       (error nil))))  ; Silently ignore any errors
 
 ;; Hook it up to run after saving
