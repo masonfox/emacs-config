@@ -363,6 +363,12 @@ place point after the link, and re-enter insert mode."
 ;; Commit only after capture is finalized
 (add-hook 'org-capture-after-finalize-hook #'mason/org-roam-auto-commit)
 
+;; go to the top of the buffer. great to use with :after
+;; see org-roam config you advice-add declarations
+(defun mason/goto-buffer-top (&rest _)
+  "Move to top of buffer."
+  (goto-char (point-min)))
+
 ;;;;;;;;;;;;;;;;;;;
 ;; GLOBAL CONFIG ;;
 ;;;;;;;;;;;;;;;;;;;
@@ -422,6 +428,14 @@ place point after the link, and re-enter insert mode."
            (file "~/notes/templates/person.org")
            :target (file+head ,(concat "people/" mason/org-roam-filename) "")
            :unnarrowed t)))
+
+  ;; Extend/add advice to the org-roam functions
+  ;; Ensure we go to the top of the buffer on these roam-daily functions
+  (advice-add 'org-roam-dailies-goto-date :after #'mason/goto-buffer-top)
+  (advice-add 'org-roam-dailies-goto-yesterday :after #'mason/goto-buffer-top)
+  (advice-add 'org-roam-dailies-goto-today :after #'mason/goto-buffer-top)
+  (advice-add 'org-roam-dailies-find-previous-note :after #'mason/goto-buffer-top)
+  (advice-add 'org-roam-dailies-find-next-note :after #'mason/goto-buffer-top)
 
   ;; Keybindings
   ;; Note - 'n' - key bindings
