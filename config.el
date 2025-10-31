@@ -330,7 +330,9 @@ place point after the link, and re-enter insert mode."
          (random-file (when journal-files
                         (nth (random (length journal-files)) journal-files))))
     (if random-file
-        (find-file random-file)
+        (progn
+          (find-file random-file)
+          (goto-char (point-min)))
       (message "No journal files found in %s" journal-dir))))
 
 
