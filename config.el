@@ -481,8 +481,8 @@ place point after the link, and re-enter insert mode."
   (advice-add 'org-roam-dailies-goto-date :after #'mason/goto-buffer-top)
   (advice-add 'org-roam-dailies-goto-yesterday :after #'mason/goto-buffer-top)
   (advice-add 'org-roam-dailies-goto-today :after #'mason/goto-buffer-top)
-  (advice-add 'org-roam-dailies-find-previous-note :after #'mason/goto-buffer-top)
-  (advice-add 'org-roam-dailies-find-next-note :after #'mason/goto-buffer-top)
+  (advice-add 'org-roam-dailies-goto-previous-note :after #'mason/goto-buffer-top)
+  (advice-add 'org-roam-dailies-goto-next-note :after #'mason/goto-buffer-top)
 
   ;; Keybindings
   ;; Note - 'n' - key bindings
@@ -504,8 +504,8 @@ place point after the link, and re-enter insert mode."
        :desc "Open journal note by date"      "d" #'org-roam-dailies-goto-date
        :desc "Open yesterday's journal note"  "y" #'org-roam-dailies-goto-yesterday
        :desc "Open today's journal note"      "t" #'org-roam-dailies-goto-today
-       :desc "Find previous journal note"     "p" #'org-roam-dailies-find-previous-note
-       :desc "Find next journal note"         "n" #'org-roam-dailies-find-next-note
+       :desc "Find previous journal note"     "p" #'org-roam-dailies-goto-previous-note
+       :desc "Find next journal note"         "n" #'org-roam-dailies-goto-next-note
        :desc "Open random journal note"       "r" #'mason/open-random-journal-note))
 
   ;; Override 'SPC-/' to search all org-roam-directory notes
