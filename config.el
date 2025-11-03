@@ -447,7 +447,7 @@ place point after the link, and re-enter insert mode."
       '(("d" "default" entry
          "* "
          :target (file+head "%<%Y-%m-%d>.org"
-                            ":PROPERTIES:\n:ID: %<%Y-%m-%d>\n:END:\n#+title: %<%B, %d %Y (%a)>\n#+filetags: :journal:daily:\n\n* Notes\n\n** "))))
+                            ":PROPERTIES:\n:ID: %<%Y-%m-%d>\n:END:\n#+title: %<%B, %d %Y (%a)>\n#+filetags: :journal:daily:\n\n* "))))
 
 ;; set note capture templates
 ;; set note type variable
