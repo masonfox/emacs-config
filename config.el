@@ -456,23 +456,23 @@ place point after the link, and re-enter insert mode."
 ;; template definitions
   (setq org-roam-capture-templates
         `(("z" "zettel" plain
-           (file "~/notes/templates/zettel.org")
+           (file "~/notes/support/templates/zettel.org")
            :target (file+head ,(concat "fleeting/" mason/org-roam-filename) "")
            :unnarrowed t)
 
           ;; lit notes default to /fleeting due to :fleeting: tag
           ("l" "literature" plain
-           (file "~/notes/templates/literature.org")
+           (file "~/notes/support/templates/literature.org")
            :target (file+head ,(concat "fleeting/" mason/org-roam-filename) "")
            :unnarrowed t)
 
           ("m" "moc" plain
-           (file "~/notes/templates/moc.org")
+           (file "~/notes/support/templates/moc.org")
            :target (file+head ,(concat "maps/" mason/org-roam-filename) "")
            :unnarrowed t)
 
          ("p" "person" plain
-           (file "~/notes/templates/person.org")
+           (file "~/notes/support/templates/person.org")
            :target (file+head ,(concat "people/" mason/org-roam-filename) "")
            :unnarrowed t)))
 
