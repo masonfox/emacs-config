@@ -439,7 +439,7 @@ place point after the link, and re-enter insert mode."
         org-roam-completion-everywhere t)
 
   ;; set DB connector and location
-  (setq org-roam-db-location (expand-file-name "org-roam.db" org-roam-directory))
+  (setq org-roam-db-location (expand-file-name "org-roam.db" (expand-file-name "support" org-roam-directory)))
   (setq org-roam-database-connector 'sqlite)
 
   ;; set journal template
