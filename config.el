@@ -290,9 +290,10 @@ place point after the link, and re-enter insert mode."
                      (not (member "fleeting" tags)))
                 (setq target-dir (expand-file-name "permanent/" org-roam-directory)))
 
-               ;; :literature: only (not fleeting) -> /literature
+               ;; :literature: only (not fleeting, not book) -> /literature
                ((and (member "literature" tags)
-                     (not (member "fleeting" tags)))
+                     (not (member "fleeting" tags))
+                     (not (member "book" tags)))
                 (setq target-dir (expand-file-name "literature/" org-roam-directory)))
 
                ;; :zettel:fleeting: or :literature:fleeting: -> stay in /fleeting
@@ -471,7 +472,12 @@ place point after the link, and re-enter insert mode."
            :target (file+head ,(concat "maps/" mason/org-roam-filename) "")
            :unnarrowed t)
 
-         ("p" "person" plain
+          ("b" "book" plain
+           (file "~/notes/support/templates/book.org")
+           :target (file+head ,(concat "literature/books/" mason/org-roam-filename) "")
+           :unnarrowed t)
+
+          ("p" "person" plain
            (file "~/notes/support/templates/person.org")
            :target (file+head ,(concat "people/" mason/org-roam-filename) "")
            :unnarrowed t)))
