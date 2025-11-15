@@ -525,6 +525,11 @@ place point after the link, and re-enter insert mode."
        :desc "Git push"      "P" #'magit-push-current-to-upstream ;; uppercase
        :desc "Git pull"      "p" #'magit-pull-from-upstream))     ;; lowercase
 
+  ;; toggle neotree
+  (map! :leader
+      (:prefix ("t" . "toggle")
+              :desc "Toggle neotree"      "t" #'neotree-toggle))
+
   ;; Completion key inside org-mode
   (map! :map org-mode-map
         "C-M-i" #'completion-at-point))
