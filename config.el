@@ -433,11 +433,13 @@ place point after the link, and re-enter insert mode."
 ;; ORG-ROAM CONFIGURATION ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; Set directory at top level so commands bound below (e.g. 'SPC /', 'SPC j r')
+;; work before org-roam is lazily loaded
+(setq org-roam-directory "~/notes"
+      org-roam-dailies-directory "journal/")
+
 (after! org-roam
-  ;; Set directory
-  (setq org-roam-directory "~/notes"
-        org-roam-dailies-directory "journal/"
-        org-roam-completion-everywhere t)
+  (setq org-roam-completion-everywhere t)
 
   ;; set DB connector and location
   (setq org-roam-db-location (expand-file-name "org-roam.db" (expand-file-name "support" org-roam-directory)))
@@ -488,51 +490,55 @@ place point after the link, and re-enter insert mode."
   (advice-add 'org-roam-dailies-goto-yesterday :after #'mason/goto-buffer-top)
   (advice-add 'org-roam-dailies-goto-today :after #'mason/goto-buffer-top)
   (advice-add 'org-roam-dailies-goto-previous-note :after #'mason/goto-buffer-top)
-  (advice-add 'org-roam-dailies-goto-next-note :after #'mason/goto-buffer-top)
+  (advice-add 'org-roam-dailies-goto-next-note :after #'mason/goto-buffer-top))
 
-  ;; Keybindings
-  ;; Note - 'n' - key bindings
-  (map! :leader
-        (:prefix ("n" . "notes")
-         :desc "Toggle Org Roam buffer"       "l" #'org-roam-buffer-toggle
-         :desc "Find node"                    "f" #'org-roam-node-find
-         :desc "Capture node"                 "c" #'org-roam-capture
-         :desc "Insert node"                  "i" #'mason/org-roam-node-insert
-         :desc "See backlinks"                "b" #'org-roam-buffer-toggle
-         :desc "Move file"                    "m" #'mason/org-roam-move-file
-         :desc "Goto or insert parent node"   "p" #'mason/org-roam-goto-or-insert-parent
-         :desc "Go to home/root.org"          "h" #'(lambda () (interactive) (find-file "~/notes/root.org"))
-         :desc "Extract subtree to node"      "x" #'org-roam-extract-subtree))
+;; Keybindings
+;; Defined at top level (not inside `after! org-roam') so they're available
+;; immediately on startup, e.g. from the dashboard. Org-roam commands are
+;; autoloaded, so using one will load org-roam on demand.
+;; Note - 'n' - key bindings
+(map! :leader
+      (:prefix ("n" . "notes")
+       :desc "Toggle Org Roam buffer"       "l" #'org-roam-buffer-toggle
+       :desc "Find node"                    "f" #'org-roam-node-find
+       :desc "Capture node"                 "c" #'org-roam-capture
+       :desc "Insert node"                  "i" #'mason/org-roam-node-insert
+       :desc "See backlinks"                "b" #'org-roam-buffer-toggle
+       :desc "Move file"                    "m" #'mason/org-roam-move-file
+       :desc "Goto or insert parent node"   "p" #'mason/org-roam-goto-or-insert-parent
+       :desc "Go to home/root.org"          "h" #'(lambda () (interactive) (find-file "~/notes/root.org"))
+       :desc "Extract subtree to node"      "x" #'org-roam-extract-subtree))
 
- ;; set org-roam journal global entries
-  (map! :leader
-      (:prefix ("j" . "journal")
-       :desc "Open journal note by date"      "d" #'org-roam-dailies-goto-date
-       :desc "Open yesterday's journal note"  "y" #'org-roam-dailies-goto-yesterday
-       :desc "Open today's journal note"      "t" #'org-roam-dailies-goto-today
-       :desc "Find previous journal note"     "p" #'org-roam-dailies-goto-previous-note
-       :desc "Find next journal note"         "n" #'org-roam-dailies-goto-next-note
-       :desc "Open random journal note"       "r" #'mason/open-random-journal-note))
+;; set org-roam journal global entries
+(map! :leader
+    (:prefix ("j" . "journal")
+     :desc "Open journal note by date"      "d" #'org-roam-dailies-goto-date
+     :desc "Open yesterday's journal note"  "y" #'org-roam-dailies-goto-yesterday
+     :desc "Open today's journal note"      "t" #'org-roam-dailies-goto-today
+     :desc "Find previous journal note"     "p" #'org-roam-dailies-goto-previous-note
+     :desc "Find next journal note"         "n" #'org-roam-dailies-goto-next-note
+     :desc "Open random journal note"       "r" #'mason/open-random-journal-note))
 
-  ;; Override 'SPC-/' to search all org-roam-directory notes
-  (map! :leader
-        :desc "Search all org-roam notes"
-        "/" #'mason/search-org-roam)
+;; Override 'SPC-/' to search all org-roam-directory notes
+(map! :leader
+      :desc "Search all org-roam notes"
+      "/" #'mason/search-org-roam)
 
-  ;; Quick access to magit/git operations
-  (map! :leader
-      (:prefix ("g" . "git")
-       :desc "Git push"      "P" #'magit-push-current-to-upstream ;; uppercase
-       :desc "Git pull"      "p" #'magit-pull-from-upstream))     ;; lowercase
+;; Quick access to magit/git operations
+(map! :leader
+    (:prefix ("g" . "git")
+     :desc "Git push"      "P" #'magit-push-current-to-upstream ;; uppercase
+     :desc "Git pull"      "p" #'magit-pull-from-upstream))     ;; lowercase
 
-  ;; toggle neotree
-  (map! :leader
-      (:prefix ("t" . "toggle")
-              :desc "Toggle neotree"      "t" #'neotree-toggle))
+;; toggle neotree
+(map! :leader
+    (:prefix ("t" . "toggle")
+            :desc "Toggle neotree"      "t" #'neotree-toggle))
 
-  ;; Completion key inside org-mode
-  (map! :map org-mode-map
-        "C-M-i" #'completion-at-point))
+;; Completion key inside org-mode
+(map! :after org
+      :map org-mode-map
+      "C-M-i" #'completion-at-point)
 
 
 ;; Windows Clean Up
