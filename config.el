@@ -221,7 +221,29 @@ place point after the link, and re-enter insert mode."
 
 
 ;; Two-sided MOC links: the note points up to its MOC via #+parent, and the
-;; MOC lists the note under its * Notes heading.
+;; MOC lists the note under its * Notes heading. Root (root.org) can be a parent
+;; too: it lists MOCs under * Maps of Content and other notes under
+;; * Other Higher-Order Notes. A MOC is tagged top under Root, nest elsewhere.
+(defvar mason/notes-root-file "~/notes/root.org"
+  "The notes home file, which sits above all top-level MOCs.")
+
+(defun mason/notes-root-file-p (file)
+  "Return non-nil if FILE is `mason/notes-root-file'."
+  (and file (file-equal-p file mason/notes-root-file)))
+
+(defun mason/org-roam--note-tags ()
+  "Return the current note's file-level tags."
+  (split-string (or (cadar (org-collect-keywords '("filetags"))) "") ":" t "[ \t]+"))
+
+(defun mason/org-roam--set-moc-level (top)
+  "Tag the current MOC note top if TOP, otherwise nest. Non-MOCs are left alone."
+  (let ((tags (mason/org-roam--note-tags)))
+    (when (member "moc" tags)
+      (org-roam-set-keyword
+       "filetags"
+       (org-make-tag-string
+        (append (cl-remove-if (lambda (tag) (member tag '("top" "nest"))) tags)
+                (list (if top "top" "nest"))))))))
 (defun mason/org-roam--set-parent (moc-id moc-title)
   "Point the current note's #+parent keyword at MOC-ID / MOC-TITLE."
   (let ((line (concat "#+parent: " (org-link-make-string (concat "id:" moc-id) moc-title))))
@@ -240,8 +262,8 @@ place point after the link, and re-enter insert mode."
                  (insert line "\n"))
                 (t (insert line "\n"))))))))
 
-(defun mason/org-roam--add-to-moc (moc-file id title)
-  "List the note ID / TITLE under * Notes in MOC-FILE, unless already linked."
+(defun mason/org-roam--add-to-moc (moc-file heading id title)
+  "List the note ID / TITLE under HEADING in MOC-FILE, unless already linked."
   (let* ((visiting (get-file-buffer moc-file))
          (buf (or visiting (find-file-noselect moc-file))))
     (with-current-buffer buf
@@ -251,7 +273,7 @@ place point after the link, and re-enter insert mode."
           (goto-char (point-min))
           (unless (search-forward (concat "[[id:" id "]") nil t)
             (goto-char (point-min))
-            (if (re-search-forward "^\\* Notes[ \t]*$" nil t)
+            (if (re-search-forward (concat "^\\* " (regexp-quote heading) "[ \t]*$") nil t)
                 ;; Append to the heading's own text, before any sub-heading
                 (let ((heading-end (point)))
                   (forward-line 1)
@@ -261,7 +283,7 @@ place point after the link, and re-enter insert mode."
                   (skip-chars-backward " \t\n" heading-end))
               (goto-char (point-max))
               (skip-chars-backward " \t\n")
-              (insert "\n\n* Notes"))
+              (insert "\n\n* " heading))
             (insert "\n- " (org-link-make-string (concat "id:" id) title))
             (save-buffer)))))
     (unless visiting (kill-buffer buf))))
@@ -274,8 +296,13 @@ place point after the link, and re-enter insert mode."
     (when (equal id moc-id)
       (user-error "A note can't be its own MOC"))
     (mason/org-roam--set-parent moc-id moc-title)
+    (mason/org-roam--set-moc-level (mason/notes-root-file-p moc-file))
     (save-buffer)
-    (mason/org-roam--add-to-moc moc-file id title)
+    (mason/org-roam--add-to-moc moc-file
+                                (cond ((not (mason/notes-root-file-p moc-file)) "Notes")
+                                      ((member "moc" (mason/org-roam--note-tags)) "Maps of Content")
+                                      (t "Other Higher-Order Notes"))
+                                id title)
     (message "Linked to %s" moc-title)))
 
 (defun mason/org-roam-link-to-moc (&optional relink)
@@ -292,7 +319,9 @@ With prefix arg RELINK, pick a MOC even if #+parent is already set."
     (if (and parent-id (not relink))
         (org-roam-id-open parent-id nil)
       (let ((buf (current-buffer))
-            (moc (org-roam-node-read nil (lambda (node) (member "moc" (org-roam-node-tags node)))
+            (moc (org-roam-node-read nil (lambda (node)
+                                           (or (member "moc" (org-roam-node-tags node))
+                                               (mason/notes-root-file-p (org-roam-node-file node))))
                                      nil nil "MOC: ")))
         (if (org-roam-node-id moc)
             (mason/org-roam--link-note-to-moc (org-roam-node-id moc)
@@ -529,9 +558,9 @@ With prefix arg RELINK, pick a MOC even if #+parent is already set."
 ;; immediately on startup, e.g. from the dashboard. Org-roam commands are
 ;; autoloaded, so using one will load org-roam on demand.
 (defun mason/goto-notes-home ()
-  "Open the notes home file, ~/notes/root.org."
+  "Open the notes home file, `mason/notes-root-file'."
   (interactive)
-  (find-file "~/notes/root.org"))
+  (find-file mason/notes-root-file))
 
 ;; Note - 'n' - key bindings
 (map! :leader

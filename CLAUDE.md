@@ -59,7 +59,9 @@ All commits go through an async, serialized queue (`mason/notes-git-commit`), pr
 ### Custom Functions
 
 - `mason/org-roam-node-insert`: Node insertion that places the link after the cursor and re-enters insert mode
-- `mason/org-roam-link-to-moc` (`SPC n p`): Follows `#+parent:` if set. Otherwise, picks (or captures) a `:moc:` node, sets `#+parent:` on the note, and appends the note's link under the MOC's `* Notes` heading (before any sub-headings; skipped if already linked). Saves both. `C-u` re-picks even if a parent is set.
+- `mason/org-roam-link-to-moc` (`SPC n p`): Follows `#+parent:` if set. Otherwise, picks (or captures) a `:moc:` node or Root (`mason/notes-root-file`), sets `#+parent:` on the note, and appends the note's link to the parent (before any sub-headings; skipped if already linked). Saves both. `C-u` re-picks even if a parent is set.
+  - In a MOC, the link goes under `* Notes`. In Root, MOCs go under `* Maps of Content` and other notes under `* Other Higher-Order Notes`.
+  - A MOC linked to Root is tagged `:top:`; a MOC linked to another MOC is tagged `:nest:`. Non-MOC tags are untouched.
 - `mason/org-roam-dailies-ensure-date-id`: Sets a journal file's file-level ID to its date (org-roam creates a UUID). Runs on `org-roam-dailies-find-file-hook` and `before-save-hook`; idempotent.
 - `mason/org-roam-move-file`: Move a file to another folder, keeping the DB in sync, and commit
 - `mason/search-org-roam`: ripgrep the whole notes directory (`SPC /`)
