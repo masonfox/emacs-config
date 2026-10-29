@@ -422,7 +422,7 @@ place point after the link, and re-enter insert mode."
 ;;;;;;;;;;;;;;;;;;;
 
 ;; Override buffer kill selection to current buffer
-(global-set-key (kbd "C-x k") 'kill-this-buffer)
+(global-set-key (kbd "C-x k") 'kill-current-buffer)
 
 ;; Since 'C-x k' allows your to kill the current buffer
 ;; Map 'C-x K' (upper) to ibuffer, allowing you to kill MANY buffers
