@@ -590,6 +590,11 @@ place point after the link, and re-enter insert mode."
       :map org-mode-map
       "C-M-i" #'completion-at-point)
 
+;; Quick node insert that works in insert mode (SPC n i only works in normal)
+(map! :after org
+      :map org-mode-map
+      :ni "C-c i" #'mason/org-roam-node-insert)
+
 ;; Dashboard menu
 ;; Set the whole list rather than modifying the default: the dashboard module's
 ;; `defcustom' isn't loaded yet here, and it won't override a value already set.
