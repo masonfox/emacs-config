@@ -147,31 +147,6 @@ Only FILES are staged and committed; nothing else in the repo is touched."
                      (mason/notes-git--run-next)))))))
 
 
-;; Get around annoying orf-roam-node-insert oddities
-(defun mason/org-roam-node-insert-old ()
-  "Insert an Org-roam node without unwanted leading or trailing spaces,
-place point after the link, and re-enter insert mode."
-  (interactive)
-  (let ((start (point)))
-    (org-roam-node-insert)
-    ;; Find the link that was just inserted and check for leading space
-    (save-excursion
-      (goto-char start)
-      ;; Search for the [[ that starts the link
-      (when (search-forward "[[" nil t)
-        (goto-char (match-beginning 0))
-        ;; Check if there's a space before it
-        (when (and (> (point) (point-min))
-                   (= (char-before) ?\s))
-          (delete-char -1))))
-    ;; Move point to end of the inserted link
-    (when (org-in-regexp org-link-bracket-re 1)
-      (goto-char (match-end 0)))
-    ;; Back to insert mode
-    (when (bound-and-true-p evil-mode)
-      (evil-insert 1))))
-
-
 ;; Cleans up whitespace on org-roam insert and also returns to insert mode - maintain flow.
 (defun mason/org-roam-node-insert ()
   "Insert an Org-roam node after point (like evil's `a' in normal state),
@@ -225,62 +200,132 @@ place point after the link, and re-enter insert mode."
       (funcall finish))))
 
 
-;; This removes the generated UUID from journal entries.
-;; My template otherwise insert it's own in a yyyy-mm-dd format, which I prefer.
-(defun mason/org-roam-dailies-remove-duplicate-id ()
-  "Remove the first auto-generated ID if there's a custom ID below it."
-  (save-excursion
-    (goto-char (point-min))
-    (let ((first-id-end nil)
-          (second-id-start nil))
-      ;; Find the first properties drawer
-      (when (re-search-forward "^:PROPERTIES:" nil t)
-        (let ((first-start (match-beginning 0)))
-          (when (re-search-forward "^:END:" nil t)
-            (setq first-id-end (match-end 0))
-            ;; Look for a second properties drawer
-            (when (re-search-forward "^:PROPERTIES:" nil t)
-              (setq second-id-start (match-beginning 0))
-              ;; Delete from start of file to end of first drawer
-              (delete-region (point-min) (1+ first-id-end))))))
-      ;; Clean up any extra blank lines at the top
+;; Journal files use their date (e.g. 2026-10-29) as their ID instead of a UUID.
+;; org-roam adds a UUID drawer when it creates the file, so swap it for the date.
+;; Idempotent: once the ID matches the file name, this does nothing.
+(defun mason/org-roam-dailies-ensure-date-id ()
+  "Set a journal file's file-level ID to the date in its file name."
+  (when-let* ((file (buffer-file-name))
+              ((derived-mode-p 'org-mode))
+              ((string-prefix-p (expand-file-name org-roam-dailies-directory org-roam-directory)
+                                (expand-file-name file)))
+              (date (file-name-base file))
+              ((string-match-p "\\`[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\'" date))
+              ((not (equal (org-entry-get (point-min) "ID") date))))
+    (org-entry-put (point-min) "ID" date)))
+
+;; Fix new journal files when they're opened, and before any save (e.g. a
+;; capture that never went through the find-file hook)
+(add-hook 'org-roam-dailies-find-file-hook #'mason/org-roam-dailies-ensure-date-id)
+(add-hook 'before-save-hook #'mason/org-roam-dailies-ensure-date-id)
+
+
+;; Two-sided MOC links: the note points up to its MOC via #+parent, and the
+;; MOC lists the note under its * Notes heading.
+(defun mason/org-roam--set-parent (moc-id moc-title)
+  "Point the current note's #+parent keyword at MOC-ID / MOC-TITLE."
+  (let ((line (concat "#+parent: " (org-link-make-string (concat "id:" moc-id) moc-title))))
+    (save-excursion
       (goto-char (point-min))
-      (while (looking-at "^$")
-        (delete-char 1)))))
+      (if (re-search-forward "^#\\+parent:.*$" nil t)
+          (replace-match line t t)
+        ;; No #+parent yet: put it after the last title/created/filetags line,
+        ;; or after the file's property drawer if there are none
+        (let ((pos nil))
+          (while (re-search-forward "^#\\+\\(title\\|created\\|filetags\\):.*$" nil t)
+            (setq pos (match-end 0)))
+          (cond (pos (goto-char pos) (insert "\n" line))
+                ((looking-at-p ":PROPERTIES:")
+                 (re-search-forward "^:END:\n" nil t)
+                 (insert line "\n"))
+                (t (insert line "\n"))))))))
 
-;; attach the function above to the org-roam hook for journal file creation
-(add-hook 'org-roam-dailies-find-file-hook 'mason/org-roam-dailies-remove-duplicate-id)
+(defun mason/org-roam--add-to-moc (moc-file id title)
+  "List the note ID / TITLE under * Notes in MOC-FILE, unless already linked."
+  (let* ((visiting (get-file-buffer moc-file))
+         (buf (or visiting (find-file-noselect moc-file))))
+    (with-current-buffer buf
+      (save-excursion
+        (save-restriction
+          (widen)
+          (goto-char (point-min))
+          (unless (search-forward (concat "[[id:" id "]") nil t)
+            (goto-char (point-min))
+            (if (re-search-forward "^\\* Notes[ \t]*$" nil t)
+                ;; Append to the heading's own text, before any sub-heading
+                (let ((heading-end (point)))
+                  (forward-line 1)
+                  (goto-char (if (re-search-forward org-heading-regexp nil t)
+                                 (line-beginning-position)
+                               (point-max)))
+                  (skip-chars-backward " \t\n" heading-end))
+              (goto-char (point-max))
+              (skip-chars-backward " \t\n")
+              (insert "\n\n* Notes"))
+            (insert "\n- " (org-link-make-string (concat "id:" id) title))
+            (save-buffer)))))
+    (unless visiting (kill-buffer buf))))
 
+(defun mason/org-roam--link-note-to-moc (moc-id moc-title moc-file)
+  "Link the current note to the MOC on both sides and save both files."
+  (let ((id (save-excursion (goto-char (point-min)) (org-id-get-create)))
+        (title (or (cadar (org-collect-keywords '("title")))
+                   (file-name-base (buffer-file-name)))))
+    (when (equal id moc-id)
+      (user-error "A note can't be its own MOC"))
+    (mason/org-roam--set-parent moc-id moc-title)
+    (save-buffer)
+    (mason/org-roam--add-to-moc moc-file id title)
+    (message "Linked to %s" moc-title)))
 
-;; Follows node in parent file header or inserts one
-(defun mason/org-roam-goto-or-insert-parent ()
- "Go to parent node if #+parent exists, otherwise insert one using org-roam."
-  (interactive)
-  (goto-char (point-min))
-  (cond
-   ;; Case 1: Parent link already exists - follow it
-   ((re-search-forward "^#\\+parent:\\s-*\\[\\[id:\\([^]]+\\)\\]" nil t)
-    (let ((parent-id (match-string 1)))
-      (org-roam-id-open parent-id nil)))
-
-   ;; Case 2: Empty #+parent: line exists - fill it in
-   ((re-search-forward "^#\\+parent:" nil t)
-    ;; Check if there's already a link on this line
-    (let ((line-end (line-end-position)))
-      (if (re-search-forward "\\[\\[id:" line-end t)
-          ;; There's already a link, do nothing
-          (message "Parent link already exists")
-        ;; No link yet, insert one
-        (end-of-line)
-        ;; Use org-roam-node-insert with template "m" for new nodes
-        (let ((org-roam-capture-templates
-               (list (assoc "m" org-roam-capture-templates))))
-          (org-roam-node-insert nil))
-        (save-buffer))))
-
-   ;; No match
-   (t
-    (message "No #+parent: line found!"))))
+(defun mason/org-roam-link-to-moc (&optional relink)
+  "Follow this note's #+parent MOC, or link the note to a MOC on both sides.
+Picking a MOC that doesn't exist yet captures it with the \"m\" template.
+With prefix arg RELINK, pick a MOC even if #+parent is already set."
+  (interactive "P")
+  (unless (and (buffer-file-name) (derived-mode-p 'org-mode))
+    (user-error "Not visiting an org file"))
+  (let ((parent-id (save-excursion
+                     (goto-char (point-min))
+                     (when (re-search-forward "^#\\+parent:\\s-*\\[\\[id:\\([^]]+\\)\\]" nil t)
+                       (match-string-no-properties 1)))))
+    (if (and parent-id (not relink))
+        (org-roam-id-open parent-id nil)
+      (let ((buf (current-buffer))
+            (moc (org-roam-node-read nil (lambda (node) (member "moc" (org-roam-node-tags node)))
+                                     nil nil "MOC: ")))
+        (if (org-roam-node-id moc)
+            (mason/org-roam--link-note-to-moc (org-roam-node-id moc)
+                                              (org-roam-node-title moc)
+                                              (org-roam-node-file moc))
+          ;; New MOC: grab its ID, title and file while the capture buffer is
+          ;; live, then link both sides once the capture is saved
+          (let (moc-info before-fn after-fn)
+            (setq before-fn
+                  (lambda ()
+                    (remove-hook 'org-capture-before-finalize-hook before-fn)
+                    (with-current-buffer (or (buffer-base-buffer) (current-buffer))
+                      (save-excursion
+                        (goto-char (point-min))
+                        (setq moc-info (list (org-id-get)
+                                             (cadar (org-collect-keywords '("title")))
+                                             (buffer-file-name)))))))
+            (setq after-fn
+                  (lambda ()
+                    (remove-hook 'org-capture-before-finalize-hook before-fn)
+                    (remove-hook 'org-capture-after-finalize-hook after-fn)
+                    (when (and moc-info (not (bound-and-true-p org-note-abort))
+                               (buffer-live-p buf))
+                      (with-current-buffer buf
+                        (apply #'mason/org-roam--link-note-to-moc moc-info)))))
+            (add-hook 'org-capture-before-finalize-hook before-fn)
+            (add-hook 'org-capture-after-finalize-hook after-fn)
+            (condition-case err
+                (org-roam-capture- :node moc :keys "m")
+              ((error quit)
+               (remove-hook 'org-capture-before-finalize-hook before-fn)
+               (remove-hook 'org-capture-after-finalize-hook after-fn)
+               (signal (car err) (cdr err))))))))))
 
 
 ;; Move file functionality - keeps DB in sync
@@ -305,75 +350,13 @@ place point after the link, and re-enter insert mode."
         (set-visited-file-name new-path t t)
         (set-buffer-modified-p nil))
       ;; org-roam-db-autosync-mode updates the DB for the rename
+      (when (mason/notes-file-p new-path)
+        (mason/notes-git-commit
+         (list file new-path)
+         (format "#desktop: MOVE %s → %s"
+                 (file-relative-name file org-roam-directory)
+                 (file-relative-name new-path org-roam-directory))))
       (message "File moved to: %s" new-path))))
-
-
-;; Automatically move files based on tags on save
-(defun mason/org-roam-auto-organize-by-tag ()
-  "Automatically move org-roam file to appropriate directory based on tags."
-  (when (and (buffer-file-name)
-             (derived-mode-p 'org-mode)
-             (boundp 'org-roam-directory)
-             org-roam-directory
-             (stringp org-roam-directory)
-             (file-exists-p org-roam-directory))
-    (condition-case err
-        (let* ((current-file (buffer-file-name))
-               (tags (condition-case nil
-                         (org-get-tags)
-                       (error '())))
-               (filename (file-name-nondirectory current-file))
-               (current-dir (file-name-directory current-file))
-               (templates-dir (expand-file-name "support/templates/" org-roam-directory))
-               (target-dir nil))
-
-          ;; Only proceed if we're in org-roam-directory and not in templates
-          (when (string-prefix-p (expand-file-name org-roam-directory)
-                                (expand-file-name current-file))
-            ;; Skip if file is in templates directory
-            (unless (string-prefix-p templates-dir current-file)
-              ;; Determine target directory based on tag combinations
-              (cond
-               ;; :zettel: only (not fleeting) -> /permanent
-               ((and (member "zettel" tags)
-                     (not (member "fleeting" tags)))
-                (setq target-dir (expand-file-name "permanent/" org-roam-directory)))
-
-               ;; :literature: only (not fleeting, not book) -> /literature
-               ((and (member "literature" tags)
-                     (not (member "fleeting" tags))
-                     (not (member "book" tags)))
-                (setq target-dir (expand-file-name "literature/" org-roam-directory)))
-
-               ;; :zettel:fleeting: or :literature:fleeting: -> stay in /fleeting
-               ;; (no action needed, these are already filed correctly by template)
-               )
-
-              ;; Move file if target directory is different from current
-              (when (and target-dir
-                         (not (string= (file-name-as-directory current-dir)
-                                      (file-name-as-directory target-dir))))
-                ;; Create directory if it doesn't exist
-                (unless (file-exists-p target-dir)
-                  (make-directory target-dir t))
-
-                (let ((new-path (expand-file-name filename target-dir)))
-                  ;; Move the file (org-roam-db-autosync-mode updates the DB)
-                  (rename-file current-file new-path 1)
-                  ;; Update buffer
-                  (set-visited-file-name new-path t t)
-                  (set-buffer-modified-p nil)
-                  ;; Git commit the move: stage removal of old path and addition of new
-                  (mason/notes-git-commit
-                   (list current-file new-path)
-                   (format "#desktop: MOVE %s → %s"
-                           (file-relative-name current-file org-roam-directory)
-                           (file-relative-name new-path org-roam-directory)))
-                  (message "File - %s - moved to %s - based on tags (committed)" filename target-dir))))))
-      (error nil))))  ; Silently ignore any errors
-
-;; Hook it up to run after saving
-(add-hook 'after-save-hook #'mason/org-roam-auto-organize-by-tag)
 
 
 ;; Auto-commit when files are deleted
@@ -433,8 +416,7 @@ place point after the link, and re-enter insert mode."
   (unless (bound-and-true-p org-capture-mode)
     (mason/org-roam-auto-commit)))
 
-;; Register for regular saves (but skip captures). Depth 90 runs this after
-;; the tag-based auto-organize, so a moved file is committed once, as a MOVE.
+;; Register for regular saves (but skip captures)
 (add-hook 'after-save-hook #'mason/org-roam-auto-commit-on-save 90)
 
 ;; Commit the captured file once capture is finalized. Capture buffers are
@@ -501,38 +483,37 @@ place point after the link, and re-enter insert mode."
       '(("d" "default" entry
          "* "
          :target (file+head "%<%Y-%m-%d>.org"
-                            ":PROPERTIES:\n:ID: %<%Y-%m-%d>\n:END:\n#+title: %<%B, %d %Y (%a)>\n#+filetags: :journal:daily:\n\n* "))))
+                            "#+title: %<%B, %d %Y (%a)>\n#+filetags: :journal:daily:\n\n* "))))
+
+  ;; `SPC n x' promotes a heading (e.g. from a daily note) to its own note
+  (setq org-roam-extract-new-file-path "permanent/${slug}.org")
 
 ;; set note capture templates
 ;; set note type variable
   (setq mason/org-roam-filename "${slug}.org")
 
 ;; template definitions
+;; Deliberately minimal: a title and a timestamp, then straight to writing.
+;; "n" comes first so it's the default when `org-roam-node-find' creates a node.
   (setq org-roam-capture-templates
-        `(("z" "zettel" plain
-           (file "~/notes/support/templates/zettel.org")
-           :target (file+head ,(concat "fleeting/" mason/org-roam-filename) "")
+        `(("n" "note" plain "%?"
+           :target (file+head ,(concat "permanent/" mason/org-roam-filename)
+                              "#+title: ${title}\n#+created: %U\n\n")
            :unnarrowed t)
 
-          ;; lit notes default to /fleeting due to :fleeting: tag
-          ("l" "literature" plain
-           (file "~/notes/support/templates/literature.org")
-           :target (file+head ,(concat "fleeting/" mason/org-roam-filename) "")
+          ("l" "literature" plain "%?"
+           :target (file+head ,(concat "literature/" mason/org-roam-filename)
+                              "#+title: ${title}\n#+created: %U\n#+filetags: :literature:\n#+source:\n\n")
            :unnarrowed t)
 
-          ("m" "moc" plain
-           (file "~/notes/support/templates/moc.org")
-           :target (file+head ,(concat "maps/" mason/org-roam-filename) "")
+          ("m" "moc" plain "%?\n\n* Notes\n"
+           :target (file+head ,(concat "maps/" mason/org-roam-filename)
+                              "#+title: ${title} (MOC)\n#+created: %U\n#+filetags: :moc:\n\n")
            :unnarrowed t)
 
-          ("b" "book" plain
-           (file "~/notes/support/templates/book.org")
-           :target (file+head ,(concat "literature/books/" mason/org-roam-filename) "")
-           :unnarrowed t)
-
-          ("p" "person" plain
-           (file "~/notes/support/templates/person.org")
-           :target (file+head ,(concat "people/" mason/org-roam-filename) "")
+          ("p" "person" plain "%?"
+           :target (file+head ,(concat "people/" mason/org-roam-filename)
+                              "#+title: ${title}\n#+created: %u\n#+filetags: :person:\n\n")
            :unnarrowed t)))
 
   ;; Extend/add advice to the org-roam functions
@@ -561,13 +542,14 @@ place point after the link, and re-enter insert mode."
        :desc "Insert node"                  "i" #'mason/org-roam-node-insert
        :desc "See backlinks"                "b" #'org-roam-buffer-toggle
        :desc "Move file"                    "m" #'mason/org-roam-move-file
-       :desc "Goto or insert parent node"   "p" #'mason/org-roam-goto-or-insert-parent
+       :desc "Goto or link to MOC"         "p" #'mason/org-roam-link-to-moc
        :desc "Go to home/root.org"          "h" #'mason/goto-notes-home
        :desc "Extract subtree to node"      "x" #'org-roam-extract-subtree))
 
 ;; set org-roam journal global entries
 (map! :leader
     (:prefix ("j" . "journal")
+     :desc "Open today's journal note"      "j" #'org-roam-dailies-goto-today
      :desc "Open journal note by date"      "d" #'org-roam-dailies-goto-date
      :desc "Open yesterday's journal note"  "y" #'org-roam-dailies-goto-yesterday
      :desc "Open today's journal note"      "t" #'org-roam-dailies-goto-today

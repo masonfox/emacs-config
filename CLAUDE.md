@@ -31,97 +31,69 @@ After changing fonts in config:
 
 ## Architecture
 
+The notes system is built to favor emergence over processing: daily notes are the entry point, ideas get their own note only when they earn it, and MOCs grow bottom-up. There is no fleeting inbox or tag-driven maturation. Automate mechanical actions (git, linking both sides of a MOC relationship), not decisions about where ideas belong.
+
 ### Org-Roam Directory Structure
 
-The configuration manages notes in `~/notes` with automatic organization:
+Notes live in `~/notes`:
 
-- `/fleeting/`: New zettel and literature notes (temporary staging)
-- `/permanent/`: Mature zettel notes (auto-moved when `:fleeting:` tag removed)
-- `/literature/`: Finalized literature notes (auto-moved when `:fleeting:` tag removed)
-- `/journal/`: Daily journal entries
+- `/journal/`: Daily notes, the primary entry point (`YYYY-MM-DD.org`, ID is the date)
+- `/permanent/`: Evergreen notes (new notes are created here directly)
+- `/literature/`: Source notes (`/literature/books/` holds older book notes)
 - `/maps/`: MOC (Map of Content) files
-- `/people/`: Person-specific notes
-- `/templates/`: Note templates (excluded from auto-organization)
+- `/people/`: Person notes
+- `/fleeting/`: Legacy; nothing new is created here and nothing is auto-moved out of it
+- `/support/`: `org-roam.db` and the legacy `templates/` files (no longer used by config)
 
-### Automatic File Organization
-
-Files are automatically moved between directories on save based on tags (config.el:262-335):
-- `:zettel:` (without `:fleeting:`) → `/permanent/`
-- `:literature:` (without `:fleeting:`) → `/literature/`
-- Tagged moves trigger git commits with descriptive messages
+Files are never moved automatically. `SPC n m` (`mason/org-roam-move-file`) moves a file by hand and commits the move.
 
 ### Git Automation
 
-Three auto-commit mechanisms are active:
+All commits go through an async, serialized queue (`mason/notes-git-commit`), prefixed with `#desktop:`:
 
-1. **Regular saves** (config.el:401-407): Commits with timestamp on every save
-2. **File moves** (config.el:319-328): Commits showing old → new path
-3. **File deletions** (config.el:339-367): Commits deletions automatically via advice on `delete-file`
-
-All commits are prefixed with `#desktop:` for identification.
+1. **Saves** (`mason/org-roam-auto-commit-on-save`): UPDATE commit on every save of a file in the notes repo
+2. **Captures** (`mason/org-roam-auto-commit-after-capture-h`): commits the captured file after finalize
+3. **Moves** (`mason/org-roam-move-file`): MOVE commit with old → new path
+4. **Deletions** (`mason/org-roam-auto-commit-deletion-advice`): advice on `delete-file`
 
 ### Custom Functions
 
-Key custom functions in config.el:
-
-- `mason/org-roam-node-insert` (122-169): Enhanced node insertion that cleans whitespace and maintains insert mode
-- `mason/org-roam-dailies-remove-duplicate-id` (174-193): Removes auto-generated IDs from journal entries
-- `mason/org-roam-goto-or-insert-parent` (200-227): Navigate to or insert parent links
-- `mason/org-roam-move-file` (231-258): Move files while keeping org-roam DB in sync
-- `mason/org-roam-auto-organize-by-tag` (262-335): Core auto-organization logic
-- `mason/org-roam-auto-commit` (386-410): Git automation for saves
-- `mason/search-org-roam` (89-93): Search entire org-roam directory (overrides `SPC /`)
+- `mason/org-roam-node-insert`: Node insertion that places the link after the cursor and re-enters insert mode
+- `mason/org-roam-link-to-moc` (`SPC n p`): Follows `#+parent:` if set. Otherwise, picks (or captures) a `:moc:` node, sets `#+parent:` on the note, and appends the note's link under the MOC's `* Notes` heading (before any sub-headings; skipped if already linked). Saves both. `C-u` re-picks even if a parent is set.
+- `mason/org-roam-dailies-ensure-date-id`: Sets a journal file's file-level ID to its date (org-roam creates a UUID). Runs on `org-roam-dailies-find-file-hook` and `before-save-hook`; idempotent.
+- `mason/org-roam-move-file`: Move a file to another folder, keeping the DB in sync, and commit
+- `mason/search-org-roam`: ripgrep the whole notes directory (`SPC /`)
+- `mason/open-random-journal-note`: Random journal note (`SPC j r`)
 
 ### Template System
 
-Capture templates (config.el:457-477):
-- `z`: Zettel notes → `/fleeting/`
-- `l`: Literature notes → `/fleeting/`
-- `m`: MOC notes → `/maps/`
-- `p`: Person notes → `/people/`
-- `d`: Daily journal → `/journal/` (YYYY-MM-DD.org format)
+Capture templates are minimal and defined inline in config.el (title, timestamp, then writing):
+- `n`: Note → `/permanent/` (listed first, so it's the default for new nodes from `SPC n f`)
+- `l`: Literature → `/literature/` (`:literature:` tag, optional `#+source:`)
+- `m`: MOC → `/maps/` (`:moc:` tag, single `* Notes` heading)
+- `p`: Person → `/people/`
+- Dailies `d`: `/journal/YYYY-MM-DD.org`
 
-Templates are loaded from `~/notes/templates/` directory.
+`org-roam-extract-new-file-path` is `permanent/${slug}.org`, so `SPC n x` promotes a heading (typically from a daily note) to an evergreen note.
 
 ### Key Binding Structure
 
-Custom leader key prefixes:
-- `SPC n`: Note operations (find, capture, insert, move, parent navigation)
-- `SPC j`: Journal operations (daily notes, random note)
-- `SPC /`: Overridden to search all org-roam notes (not just CWD)
-- `SPC g P/p`: Git push/pull shortcuts
-- `C-x k`: Kill current buffer (overridden from default)
-- `C-x K`: Open ibuffer for bulk operations
+- `SPC n`: Notes: find `f`, capture `c`, insert `i`, backlinks `l`/`b`, move `m`, MOC `p`, extract `x`, home `h`
+- `SPC j`: Journal: today `j`/`t`, yesterday `y`, by date `d`, previous/next `p`/`n`, random `r`
+- `C-c i`: Node insert in org-mode (works in insert state)
+- `SPC /`: Search all notes (not just CWD)
+- `SPC g P/p`: Git push/pull
+- `C-x k`: Kill current buffer; `C-x K`: ibuffer
 
 ### Advice Extensions
 
-The config adds `:after` advice to org-roam-dailies functions (config.el:481-485) to jump to top of buffer:
-- `org-roam-dailies-goto-date`
-- `org-roam-dailies-goto-yesterday`
-- `org-roam-dailies-goto-today`
-- `org-roam-dailies-find-previous-note`
-- `org-roam-dailies-find-next-note`
-
-## Important Behaviors
-
-### Whitespace and Insert Mode
-
-Custom node insertion functions clean up unwanted spaces that org-roam-node-insert creates and automatically re-enter evil insert mode for workflow continuity.
-
-### Template Files Are Protected
-
-The auto-organization function explicitly skips files in the `/templates/` directory to prevent template files from being moved.
-
-### Git Integration
-
-All org-roam operations that modify the filesystem automatically create git commits. The repository at `~/notes` should be a git repository for this to work properly.
+`:after` advice on the org-roam-dailies goto functions (today, yesterday, date, previous, next) jumps to the top of the buffer.
 
 ## Package Dependencies
 
 Custom packages (packages.el):
 - `sqlite3`: Database connector for org-roam
-- `everforest`: Alternative theme (from GitHub)
 
 ## Database Configuration
 
-Org-roam uses SQLite with database location at `~/notes/org-roam.db`. The connector is explicitly set to 'sqlite (config.el:443).
+The org-roam DB is at `~/notes/support/org-roam.db`, with the connector set to `'sqlite`. `org-roam-db-autosync-mode` keeps it current through moves and deletions.
