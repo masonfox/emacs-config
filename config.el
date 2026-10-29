@@ -174,24 +174,30 @@ place point after the link, and re-enter insert mode."
 
 ;; Cleans up whitespace on org-roam insert and also returns to insert mode - maintain flow.
 (defun mason/org-roam-node-insert ()
-  "Insert an Org-roam node without unwanted leading or trailing spaces,
+  "Insert an Org-roam node after point (like evil's `a' in normal state),
 place point after the link, and re-enter insert mode."
   (interactive)
+  ;; In normal state the cursor sits *on* a character and inserting at point
+  ;; puts the link before it, e.g. after typing "word " and ESC the link lands
+  ;; before the space: "word[[link]] ". Step past it so the link goes where
+  ;; the cursor visually is.
+  (when (and (bound-and-true-p evil-local-mode)
+             (evil-normal-state-p)
+             (not (region-active-p))
+             (not (eolp)))
+    (forward-char))
   (let* ((buf (current-buffer))
          (start (point-marker))
          (tick (buffer-chars-modified-tick))
          (returned nil)
          (cleanup-fn nil)
-         ;; Remove the space before the link inserted at START, move past
-         ;; the link, and re-enter insert mode
+         ;; Move past the link inserted at START and re-enter insert mode
          (finish
           (lambda ()
             (with-current-buffer buf
               (goto-char start)
               (when (search-forward "[[" nil t)
                 (goto-char (match-beginning 0))
-                (when (eq (char-before) ?\s)
-                  (delete-char -1))
                 (when (org-in-regexp org-link-bracket-re 1)
                   (goto-char (match-end 0))))
               (when (bound-and-true-p evil-mode)
