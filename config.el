@@ -533,3 +533,7 @@ place point after the link, and re-enter insert mode."
   ;; Completion key inside org-mode
   (map! :map org-mode-map
         "C-M-i" #'completion-at-point))
+
+
+;; Windows Clean Up
+(add-to-list 'default-frame-alist '(undecorated . t))
