@@ -496,6 +496,11 @@ place point after the link, and re-enter insert mode."
 ;; Defined at top level (not inside `after! org-roam') so they're available
 ;; immediately on startup, e.g. from the dashboard. Org-roam commands are
 ;; autoloaded, so using one will load org-roam on demand.
+(defun mason/goto-notes-home ()
+  "Open the notes home file, ~/notes/root.org."
+  (interactive)
+  (find-file "~/notes/root.org"))
+
 ;; Note - 'n' - key bindings
 (map! :leader
       (:prefix ("n" . "notes")
@@ -506,7 +511,7 @@ place point after the link, and re-enter insert mode."
        :desc "See backlinks"                "b" #'org-roam-buffer-toggle
        :desc "Move file"                    "m" #'mason/org-roam-move-file
        :desc "Goto or insert parent node"   "p" #'mason/org-roam-goto-or-insert-parent
-       :desc "Go to home/root.org"          "h" #'(lambda () (interactive) (find-file "~/notes/root.org"))
+       :desc "Go to home/root.org"          "h" #'mason/goto-notes-home
        :desc "Extract subtree to node"      "x" #'org-roam-extract-subtree))
 
 ;; set org-roam journal global entries
@@ -539,6 +544,34 @@ place point after the link, and re-enter insert mode."
 (map! :after org
       :map org-mode-map
       "C-M-i" #'completion-at-point)
+
+;; Dashboard menu
+;; Set the whole list rather than modifying the default: the dashboard module's
+;; `defcustom' isn't loaded yet here, and it won't override a value already set.
+(setq +dashboard-menu-sections
+      '(("Notes home"
+         :icon (nerd-icons-octicon "nf-oct-home" :face '+dashboard-menu-title)
+         :action mason/goto-notes-home)
+        ("Find note"
+         :icon (nerd-icons-octicon "nf-oct-note" :face '+dashboard-menu-title)
+         :action org-roam-node-find)
+        ("Today's journal"
+         :icon (nerd-icons-octicon "nf-oct-calendar" :face '+dashboard-menu-title)
+         :action org-roam-dailies-goto-today)
+        ("Recently opened files"
+         :icon (nerd-icons-faicon "nf-fa-file_text" :face '+dashboard-menu-title)
+         :action recentf-open-files)
+        ("Reload last session"
+         :icon (nerd-icons-octicon "nf-oct-history" :face '+dashboard-menu-title)
+         :when (cond ((modulep! :ui workspaces)
+                      (file-exists-p (expand-file-name persp-auto-save-fname persp-save-dir)))
+                     ((require 'desktop nil t)
+                      (file-exists-p (desktop-full-file-name))))
+         :action doom/quickload-session)
+        ("Open private configuration"
+         :icon (nerd-icons-octicon "nf-oct-tools" :face '+dashboard-menu-title)
+         :when (file-directory-p doom-user-dir)
+         :action doom/open-private-config)))
 
 
 ;; Windows Clean Up
