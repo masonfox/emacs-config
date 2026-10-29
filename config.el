@@ -94,6 +94,59 @@
     (consult-ripgrep default-directory)))
 
 
+;; Async git commits for the notes repo
+;; Commits run in the background, one at a time, so saving never blocks Emacs
+;; and queued commits don't fight over git's index lock.
+(defvar mason/notes-git--queue nil
+  "Pending (FILES . MESSAGE) commits for the notes repo.")
+(defvar mason/notes-git--running nil
+  "Non-nil while a notes git commit is in progress.")
+
+(defun mason/notes-file-p (file)
+  "Return non-nil if FILE is inside `org-roam-directory'."
+  (string-prefix-p (file-name-as-directory (expand-file-name org-roam-directory))
+                   (expand-file-name file)))
+
+(defun mason/notes-git-commit (files message)
+  "Stage FILES in the notes repo and commit them with MESSAGE, asynchronously.
+Only FILES are staged and committed; nothing else in the repo is touched."
+  (setq mason/notes-git--queue
+        (append mason/notes-git--queue (list (cons files message))))
+  (mason/notes-git--run-next))
+
+(defun mason/notes-git--run-next ()
+  "Start the next queued notes commit, unless one is already running."
+  (when (and mason/notes-git--queue (not mason/notes-git--running))
+    (let* ((job (pop mason/notes-git--queue))
+           (message-text (cdr job))
+           (default-directory (file-name-as-directory (expand-file-name org-roam-directory)))
+           (paths (mapcar (lambda (f) (file-relative-name (expand-file-name f) default-directory))
+                          (car job)))
+           (buf (get-buffer-create " *notes-git*")))
+      (with-current-buffer buf (erase-buffer))
+      (setq mason/notes-git--running t)
+      (make-process
+       :name "notes-git"
+       :buffer buf
+       ;; $0 is the message, $@ the paths. Drop paths that neither exist nor
+       ;; are tracked (git rejects them), and skip the commit if nothing changed.
+       :command `("sh" "-c"
+                  ,(concat "for p; do shift; "
+                           "if [ -e \"$p\" ] || git ls-files --error-unmatch -- \"$p\" >/dev/null 2>&1; "
+                           "then set -- \"$@\" \"$p\"; fi; done; "
+                           "[ $# -eq 0 ] && exit 0; "
+                           "git add -A -- \"$@\" && "
+                           "{ git diff --cached --quiet -- \"$@\" || git commit -q -m \"$0\" -- \"$@\"; }")
+                  ,message-text ,@paths)
+       :sentinel (lambda (proc _event)
+                   (unless (process-live-p proc)
+                     (setq mason/notes-git--running nil)
+                     (if (zerop (process-exit-status proc))
+                         (message "Git commit success — %s" message-text)
+                       (message "Git commit failed — %s (see the \" *notes-git*\" buffer)" message-text))
+                     (mason/notes-git--run-next)))))))
+
+
 ;; Get around annoying orf-roam-node-insert oddities
 (defun mason/org-roam-node-insert-old ()
   "Insert an Org-roam node without unwanted leading or trailing spaces,
@@ -124,50 +177,46 @@ place point after the link, and re-enter insert mode."
   "Insert an Org-roam node without unwanted leading or trailing spaces,
 place point after the link, and re-enter insert mode."
   (interactive)
-  (let ((start (point))
-        (buf (current-buffer))
-        (cleanup-done nil)
-        (cleanup-fn nil))
+  (let* ((buf (current-buffer))
+         (start (point-marker))
+         (tick (buffer-chars-modified-tick))
+         (returned nil)
+         (cleanup-fn nil)
+         ;; Remove the space before the link inserted at START, move past
+         ;; the link, and re-enter insert mode
+         (finish
+          (lambda ()
+            (with-current-buffer buf
+              (goto-char start)
+              (when (search-forward "[[" nil t)
+                (goto-char (match-beginning 0))
+                (when (eq (char-before) ?\s)
+                  (delete-char -1))
+                (when (org-in-regexp org-link-bracket-re 1)
+                  (goto-char (match-end 0))))
+              (when (bound-and-true-p evil-mode)
+                (evil-insert 1))))))
 
-    ;; Define cleanup function for new node captures
+    ;; New nodes: org-roam inserts the link once the capture is finalized
     (setq cleanup-fn
           (lambda ()
-            (unless cleanup-done
-              (setq cleanup-done t)
-              (with-current-buffer buf
-                (save-excursion
-                  ;; Find the most recently inserted link
-                  (goto-char (point-max))
-                  (when (re-search-backward "\\[\\[" nil t)
-                    ;; Remove space before link if present
-                    (when (and (> (point) (point-min))
-                               (= (char-before) ?\s))
-                      (delete-char -1))))
-                ;; Move point to end of link
-                (goto-char (point-max))
-                (when (re-search-backward "\\]\\]" nil t)
-                  (goto-char (match-end 0)))
-                (when (bound-and-true-p evil-mode)
-                  (evil-insert 1)))
-              (remove-hook 'org-capture-after-finalize-hook cleanup-fn))))
-
+            (remove-hook 'org-capture-after-finalize-hook cleanup-fn)
+            (unless (bound-and-true-p org-note-abort)
+              (funcall finish))))
     (add-hook 'org-capture-after-finalize-hook cleanup-fn)
-    (org-roam-node-insert)
 
-    ;; For existing nodes, cleanup immediately
-    (save-excursion
-      (goto-char start)
-      (when (search-forward "[[" nil t)
-        (goto-char (match-beginning 0))
-        (when (and (> (point) (point-min))
-                   (= (char-before) ?\s))
-          (delete-char -1))))
+    (unwind-protect
+        (progn (org-roam-node-insert)
+               (setq returned t))
+      ;; Prompt cancelled - no capture will ever finalize
+      (unless returned
+        (remove-hook 'org-capture-after-finalize-hook cleanup-fn)))
 
-    (when (org-in-regexp org-link-bracket-re 1)
-      (goto-char (match-end 0)))
-
-    (when (bound-and-true-p evil-mode)
-      (evil-insert 1))))
+    ;; Existing nodes: the link is already in, so clean up now and drop the
+    ;; hook, otherwise it would fire on some unrelated capture later
+    (unless (= tick (buffer-chars-modified-tick buf))
+      (remove-hook 'org-capture-after-finalize-hook cleanup-fn)
+      (funcall finish))))
 
 
 ;; This removes the generated UUID from journal entries.
@@ -249,14 +298,8 @@ place point after the link, and re-enter insert mode."
                          (expand-file-name file)))
         (set-visited-file-name new-path t t)
         (set-buffer-modified-p nil))
-      ;; Sync org-roam database
-      (when (and (boundp 'org-roam-directory)
-                 (or (string-prefix-p (expand-file-name org-roam-directory)
-                                     (expand-file-name file))
-                     (string-prefix-p (expand-file-name org-roam-directory)
-                                     (expand-file-name new-path))))
-        (org-roam-db-sync))
-      (message "File moved and synced to: %s" new-path))))
+      ;; org-roam-db-autosync-mode updates the DB for the rename
+      (message "File moved to: %s" new-path))))
 
 
 ;; Automatically move files based on tags on save
@@ -275,7 +318,7 @@ place point after the link, and re-enter insert mode."
                        (error '())))
                (filename (file-name-nondirectory current-file))
                (current-dir (file-name-directory current-file))
-               (templates-dir (expand-file-name "templates/" org-roam-directory))
+               (templates-dir (expand-file-name "support/templates/" org-roam-directory))
                (target-dir nil))
 
           ;; Only proceed if we're in org-roam-directory and not in templates
@@ -308,28 +351,18 @@ place point after the link, and re-enter insert mode."
                 (unless (file-exists-p target-dir)
                   (make-directory target-dir t))
 
-                (let ((new-path (expand-file-name filename target-dir))
-                      (relative-old-path (file-relative-name current-file org-roam-directory))
-                      (relative-new-path nil))
-                  ;; Move the file
+                (let ((new-path (expand-file-name filename target-dir)))
+                  ;; Move the file (org-roam-db-autosync-mode updates the DB)
                   (rename-file current-file new-path 1)
                   ;; Update buffer
                   (set-visited-file-name new-path t t)
                   (set-buffer-modified-p nil)
-                  ;; Git commit the move
-                  (setq relative-new-path (file-relative-name new-path org-roam-directory))
-                  (let ((default-directory org-roam-directory))
-                    ;; Stage the deletion of old path and addition of new path
-                    (shell-command (format "git add %s" (shell-quote-argument relative-new-path)))
-                    (shell-command (format "git add %s" (shell-quote-argument relative-old-path)))
-                    ;; Commit with a descriptive message
-                    (shell-command (format "git commit -m %s"
-                                         (shell-quote-argument
-                                          (format "#desktop: MOVE %s → %s"
-                                                 relative-old-path
-                                                 relative-new-path)))))
-                  ;; Sync org-roam
-                  (org-roam-db-sync)
+                  ;; Git commit the move: stage removal of old path and addition of new
+                  (mason/notes-git-commit
+                   (list current-file new-path)
+                   (format "#desktop: MOVE %s → %s"
+                           (file-relative-name current-file org-roam-directory)
+                           (file-relative-name new-path org-roam-directory)))
                   (message "File - %s - moved to %s - based on tags (committed)" filename target-dir))))))
       (error nil))))  ; Silently ignore any errors
 
@@ -353,16 +386,9 @@ place point after the link, and re-enter insert mode."
           ;; Only proceed if we're in org-roam-directory
           (when (string-prefix-p (expand-file-name org-roam-directory)
                                 (expand-file-name file))
-            (let ((default-directory org-roam-directory))
-              ;; Stage the deletion
-              (shell-command (format "git add %s" (shell-quote-argument relative-path)))
-              ;; Commit with a descriptive message
-              (shell-command (format "git commit -m %s"
-                                   (shell-quote-argument
-                                    (format "#desktop: DELETE %s" relative-path)))))
-            ;; Sync org-roam database
-            (org-roam-db-sync)
-            (message "File deletion committed: %s" relative-path)))
+            ;; org-roam-db-autosync-mode removes the file from the DB
+            (mason/notes-git-commit (list (expand-file-name file))
+                                    (format "#desktop: DELETE %s" relative-path))))
       (error nil))))  ; Silently ignore any errors
 
 ;; Advise delete-file to auto-commit after deletion
@@ -385,19 +411,15 @@ place point after the link, and re-enter insert mode."
 
 
 ;; auto git commit files
-(defun mason/org-roam-auto-commit ()
-  "Auto-commit changes in org-roam directory."
-  (when (and buffer-file-name
-             (string-match-p (expand-file-name org-roam-directory)
-                           buffer-file-name))
-    (let ((commit-msg (format "#desktop: UPDATE %s - %s"
-                              (file-name-nondirectory buffer-file-name)
-                              (format-time-string "%Y-%m-%d %I:%M %p"))))
-      (shell-command
-       (format "cd %s && git add . && git commit -m '%s'"
-               org-roam-directory
-               commit-msg))
-      (message "Git commit success — %s" commit-msg))))
+(defun mason/org-roam-auto-commit (&optional file)
+  "Auto-commit FILE (default: the current buffer's file) in the notes repo."
+  (let ((file (or file buffer-file-name)))
+    (when (and file (mason/notes-file-p file))
+      (mason/notes-git-commit
+       (list file)
+       (format "#desktop: UPDATE %s - %s"
+               (file-name-nondirectory file)
+               (format-time-string "%Y-%m-%d %I:%M %p"))))))
 
 ;; Only commit on regular saves (not during capture buffers)
 (defun mason/org-roam-auto-commit-on-save ()
@@ -405,11 +427,26 @@ place point after the link, and re-enter insert mode."
   (unless (bound-and-true-p org-capture-mode)
     (mason/org-roam-auto-commit)))
 
-;; Register for regular saves (but skip captures)
-(add-hook 'after-save-hook #'mason/org-roam-auto-commit-on-save)
+;; Register for regular saves (but skip captures). Depth 90 runs this after
+;; the tag-based auto-organize, so a moved file is committed once, as a MOVE.
+(add-hook 'after-save-hook #'mason/org-roam-auto-commit-on-save 90)
 
-;; Commit only after capture is finalized
-(add-hook 'org-capture-after-finalize-hook #'mason/org-roam-auto-commit)
+;; Commit the captured file once capture is finalized. Capture buffers are
+;; indirect buffers with no file name, so remember the target file beforehand.
+(defvar mason/org-capture--file nil
+  "File targeted by the capture currently being finalized.")
+
+(defun mason/org-capture-remember-file-h ()
+  (setq mason/org-capture--file (buffer-file-name (buffer-base-buffer))))
+
+(defun mason/org-roam-auto-commit-after-capture-h ()
+  (unless (bound-and-true-p org-note-abort)
+    (when mason/org-capture--file
+      (mason/org-roam-auto-commit mason/org-capture--file)))
+  (setq mason/org-capture--file nil))
+
+(add-hook 'org-capture-prepare-finalize-hook #'mason/org-capture-remember-file-h)
+(add-hook 'org-capture-after-finalize-hook #'mason/org-roam-auto-commit-after-capture-h)
 
 ;; go to the top of the buffer. great to use with :after
 ;; see org-roam config you advice-add declarations
@@ -437,6 +474,14 @@ place point after the link, and re-enter insert mode."
 ;; work before org-roam is lazily loaded
 (setq org-roam-directory "~/notes"
       org-roam-dailies-directory "journal/")
+
+;; Moves and deletions rely on org-roam-db-autosync-mode to keep the DB current.
+;; Doom enables it when org loads; this runs afterwards (depth 90) as a fallback.
+(add-hook 'org-load-hook
+          (defun mason/ensure-org-roam-autosync-h ()
+            (unless (bound-and-true-p org-roam-db-autosync-mode)
+              (org-roam-db-autosync-mode +1)))
+          90)
 
 (after! org-roam
   (setq org-roam-completion-everywhere t)
