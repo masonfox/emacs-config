@@ -11,6 +11,27 @@ This is a Doom Emacs configuration focused on org-roam note-taking with automate
 - **init.el**: Doom module configuration (which Doom features are enabled)
 - **packages.el**: Custom package declarations beyond Doom defaults
 - **config.el**: Personal configuration, keybindings, and custom functions
+- **README.md**: Consumer-facing reference guide (see below)
+
+## Maintaining the README
+
+`README.md` is the reference guide for what this config offers, written for someone who has never seen the repo and wants to install it and start using it. Keep it accurate as part of the work: any change that alters user-visible behavior updates the README in the same commit. Don't wait to be asked.
+
+Update it when a change affects:
+
+- Keybindings (added, removed, rebound, or overriding a Doom default)
+- Capture templates or the notes directory layout
+- MOC, journal, or git commit behavior
+- Install requirements or setup steps (new packages, external tools, Doom modules that need them)
+- Settings a user would edit to adapt the config
+
+How to write it:
+
+- Describe what a user can do and what they'll see, not how it's implemented. Function names, hooks, and advice belong in this file; the README names only settings a user would change.
+- Check every key and behavior against `config.el` rather than copying from this file or from memory.
+- Remove what no longer exists. Don't record history, such as what changed or what used to work differently.
+
+Internal refactors with no visible effect don't need a README change. This file remains the reference for architecture and internals.
 
 ## Development Commands
 
@@ -59,7 +80,7 @@ All commits go through an async, serialized queue (`mason/notes-git-commit`), pr
 ### Custom Functions
 
 - `mason/org-roam-node-insert`: Node insertion that places the link after the cursor and re-enters insert mode
-- `mason/org-roam-link-to-moc` (`SPC n p`): Follows `#+parent:` if set. Otherwise, picks (or captures) a `:moc:` node or Root (`mason/notes-root-file`), sets `#+parent:` on the note, and appends the note's link to the parent (before any sub-headings; skipped if already linked). Saves both. `C-u` re-picks even if a parent is set.
+- `mason/org-roam-link-to-moc` (`SPC n p`): Follows `#+parent:` if set. Otherwise, picks (or captures) a `:moc:` node or Root (`mason/notes-root-file`), sets `#+parent:` on the note, and appends the note's link to the parent (before any sub-headings; skipped if already linked). Saves both. A prefix argument (`SPC u SPC n p`; Doom's evil setup makes `C-u` scroll) re-picks even if a parent is set.
   - In a MOC, the link goes under `* Notes`. In Root, MOCs go under `* Maps of Content` and other notes under `* Other Higher-Order Notes`.
   - A MOC linked to Root is tagged `:top:`; a MOC linked to another MOC is tagged `:nest:`. Non-MOC tags are untouched.
 - `mason/org-roam-dailies-ensure-date-id`: Sets a journal file's file-level ID to its date (org-roam creates a UUID). Runs on `org-roam-dailies-find-file-hook` and `before-save-hook`; idempotent.
