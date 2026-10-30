@@ -86,6 +86,7 @@ Capture templates are minimal and defined inline in config.el (title, timestamp,
 - `SPC /`: Search all notes (not just CWD)
 - `SPC g P/p`: Git push/pull
 - `C-x k`: Kill current buffer; `C-x K`: ibuffer
+- `C-x C-s`: Save in insert state too (overrides Doom's insert-state `yasnippet-capf` binding)
 
 ### Advice Extensions
 

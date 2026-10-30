@@ -482,6 +482,10 @@ With prefix arg RELINK, pick a MOC even if #+parent is already set."
 ;; Map 'C-x K' (upper) to ibuffer, allowing you to kill MANY buffers
 (global-set-key (kbd "C-x K") 'ibuffer)
 
+;; Doom binds insert-state 'C-x C-s' to yasnippet-capf (Vim omni-completion
+;; emulation); keep it as save in every state
+(map! :i "C-x C-s" #'save-buffer)
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; ORG-ROAM CONFIGURATION ;;
